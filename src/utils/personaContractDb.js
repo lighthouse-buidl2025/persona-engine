@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const { evaluateWallet, prepareReferenceStats, metricKeys } = require('./walletScorer');
+const { getContractInfo } = require('./getContractInfo');
 
 // 데이터베이스 경로 설정
 const dbPath = path.join(__dirname, '../../wallet_data.db');
@@ -25,8 +26,12 @@ function createPersonaContractTable(db) {
     return new Promise((resolve, reject) => {
         db.run(`CREATE TABLE IF NOT EXISTS persona_contracts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address TEXT NOT NULL,
             from_group TEXT NOT NULL,
-            to_contract TEXT NOT NULL
+            to_contract TEXT NOT NULL,
+            name TEXT,
+            category TEXT,
+            description TEXT
         )`, (err) => {
             if (err) {
                 console.log(`테이블 생성 오류: ${err.message}`)
@@ -83,20 +88,20 @@ function initPersonaContractDatabase() {
  * @param {string} toContract - 컨트랙트 주소
  * @returns {Promise<Object>} - 처리 결과
  */
-function insertPersonaContract(db, fromGroup, toContract) {
+function insertPersonaContract(db, address, fromGroup, toContract) {
     return new Promise((resolve, reject) => {
-        if (!fromGroup || !toContract) {
+        if (!fromGroup || !toContract || !address) {
             reject('그룹과 컨트랙트 주소가 모두 필요합니다.');
             return;
         }
 
         // 새로운 데이터 삽입
         const stmt = db.prepare(`
-            INSERT INTO persona_contracts (from_group, to_contract)
-            VALUES (?, ?)
+            INSERT INTO persona_contracts (address, from_group, to_contract)
+            VALUES (?, ?, ?)
         `);
 
-        stmt.run(fromGroup, toContract, function (err) {
+        stmt.run(address, fromGroup, toContract, function (err) {
             stmt.finalize();
 
             if (err) {
@@ -107,6 +112,53 @@ function insertPersonaContract(db, fromGroup, toContract) {
             resolve({
                 id: this.lastID,
                 changes: this.changes
+            });
+        });
+    });
+}
+
+/**
+ * 컨트랙트 정보 업데이트
+ * @param {Object} db - SQLite 데이터베이스 연결 객체
+ * @param {string} toContract - 계약 주소 (업데이트 대상 식별)
+ * @param {string} name - 계약 이름
+ * @param {string} category - 계약 카테고리
+ * @param {string} description - 계약 설명
+ * @returns {Promise<Object>} - 업데이트 결과
+ */
+function updateContractInfo(db, toContract, name, category, description) {
+    return new Promise((resolve, reject) => {
+        if (!toContract) {
+            reject('계약 주소가 필요합니다.');
+            return;
+        }
+
+        // 업데이트 쿼리 실행
+        const query = `
+            UPDATE persona_contracts 
+            SET name = ?, 
+                category = ?, 
+                description = ?
+            WHERE to_contract = ?
+        `;
+
+        db.run(query, [name, category, description, toContract], function (err) {
+            if (err) {
+                reject(`업데이트 오류: ${err.message}`);
+                return;
+            }
+
+            // 영향 받은 행 수 확인
+            if (this.changes === 0) {
+                console.log(`계약 주소 ${toContract}에 해당하는 데이터가 없습니다.`);
+            } else {
+                console.log(`계약 주소 ${toContract}의 정보가 업데이트되었습니다. (${this.changes}개 행 영향)`);
+            }
+
+            resolve({
+                success: true,
+                contract: toContract,
+                rowsAffected: this.changes
             });
         });
     });
@@ -127,7 +179,7 @@ function getPopularContractsByGroup(db, fromGroup, limit = 1) {
         }
 
         const query = `
-            SELECT to_contract as contract_address, COUNT(*) as frequency
+            SELECT to_contract as contract_address, name, category, description, COUNT(*) as frequency
             FROM persona_contracts
             WHERE from_group = ?
             GROUP BY to_contract
@@ -136,6 +188,41 @@ function getPopularContractsByGroup(db, fromGroup, limit = 1) {
         `;
 
         db.all(query, [fromGroup, limit], (err, rows) => {
+            if (err) {
+                reject(`조회 오류: ${err.message}`);
+                return;
+            }
+
+            resolve(rows);
+        });
+    });
+}
+
+/**
+ * 페르소나 그룹별 인기 컨트랙트 조회
+ * @param {Object} db - SQLite 데이터베이스 연결 객체
+ * @param {string} fromGroup - 페르소나 그룹 (예: "Explorer_Whale")
+ * @param {number} limit - 조회할 컨트랙트 수 제한 (기본값: 10)
+ * @returns {Promise<Array>} - 인기 컨트랙트 목록
+ */
+function getPopularContractsByGroupExcludingAddress(db, address, fromGroup, limit = 1) {
+    return new Promise((resolve, reject) => {
+        if (!fromGroup) {
+            reject('그룹 정보가 필요합니다.');
+            return;
+        }
+
+
+        const query = `
+            SELECT to_contract as contract_address, name, category, description, COUNT(*) as frequency
+            FROM persona_contracts
+            WHERE from_group = ? AND address != ?
+            GROUP BY to_contract
+            ORDER BY frequency DESC
+            LIMIT ?
+        `;
+
+        db.all(query, [fromGroup, address, limit], (err, rows) => {
             if (err) {
                 reject(`조회 오류: ${err.message}`);
                 return;
@@ -175,20 +262,19 @@ async function processWalletData() {
         const walletParameters = JSON.parse(fs.readFileSync(walletParametersPath, 'utf8'));
         const wallets = JSON.parse(fs.readFileSync(walletsPath, 'utf8'))["wallets"];
 
-
         // 데이터베이스 초기화
         const db = await initPersonaContractDatabase();
 
         // clearPersonaContractTable(db);
-        // ["Explorer", "Diamond", "Whale", "Degen"].forEach(group => {
-        //     ["Explorer", "Diamond", "Whale", "Degen"].forEach(group2 => {
-        //         if (group !== group2) {
-        //             getPopularContractsByGroup(db, `${group}_${group2}`, 3).then(console.log)
-        //         }
-        //     })
-        // })
+        ["Explorer", "Diamond", "Whale", "Degen"].forEach(group => {
+            ["Explorer", "Diamond", "Whale", "Degen"].forEach(group2 => {
+                if (group !== group2) {
+                    getPopularContractsByGroup(db, `${group}_${group2}`, 3).then(console.log)
+                }
+            })
+        })
 
-        // return;
+        return;
 
         // 각 지갑별 고유 값 확인을 위한 로그
         console.log("지갑별 고유 값 확인:");
@@ -246,17 +332,16 @@ async function processWalletData() {
                     }
                 }
 
+
                 // 고유한 contract_address만 삽입
                 for (const contractAddress of uniqueContracts) {
-                    await insertPersonaContract(db, groupId, contractAddress);
+                    await insertPersonaContract(db, wallet.wallet || wallet.address, groupId, contractAddress);
                 }
 
                 console.log(`지갑 ${wallet.wallet || wallet.address}에서 ${uniqueContracts.size}개의 고유 컨트랙트 주소를 삽입했습니다.`);
             } else {
                 console.log(`지갑 ${wallet.wallet || wallet.address}에 트랜잭션 데이터가 없거나 배열이 아닙니다.`);
             }
-
-            await insertPersonaContract(db, groupId, wallet.address);
         }
 
         // 데이터베이스 연결 종료
@@ -274,10 +359,86 @@ async function processWalletData() {
 
 // processWalletData();
 
+// /**
+//  * persona_contracts 테이블 삭제
+//  * @param {Object} db - SQLite 데이터베이스 연결 객체
+//  * @returns {Promise<void>}
+//  */
+// function dropPersonaContractsTable(db) {
+//     return new Promise((resolve, reject) => {
+//         // 테이블 삭제
+//         db.run(`DROP TABLE IF EXISTS persona_contracts`, (err) => {
+//             if (err) {
+//                 reject(`테이블 삭제 오류: ${err.message}`);
+//                 return;
+//             }
+
+//             console.log('persona_contracts 테이블이 삭제되었습니다.');
+//             resolve();
+//         });
+//     });
+// }
+
+// // 이 함수를 직접 실행하는 코드
+// async function dropTable() {
+//     try {
+//         // 데이터베이스 연결
+//         const db = await initPersonaContractDatabase();
+
+//         // 테이블 삭제
+//         await dropPersonaContractsTable(db);
+
+//         console.log('테이블이 성공적으로 삭제되었습니다.');
+
+//         // 데이터베이스 연결 종료
+//         db.close(err => {
+//             if (err) console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
+//             else console.log('데이터베이스 연결이 종료되었습니다.');
+//         });
+//     } catch (error) {
+//         console.error(`오류 발생: ${error.message}`);
+//     }
+// }
+
+// // 함수 실행
+// dropTable();
+
+// async function update() {
+//     const db = await initPersonaContractDatabase();
+
+//     const uniqueContracts = new Set();
+
+//     ["Explorer", "Diamond", "Whale", "Degen"].forEach(group => {
+//         ["Explorer", "Diamond", "Whale", "Degen"].forEach(group2 => {
+//             if (group !== group2) {
+//                 getPopularContractsByGroup(db, `${group}_${group2}`, 20).then((data) => {
+//                     // console.log(data)
+//                     data.forEach(({ contract_address, name, category, description }) => {
+
+//                         if (!name && !uniqueContracts.has(contract_address)) {
+//                             uniqueContracts.add(contract_address)
+//                             getContractInfo(contract_address).then((res) => {
+//                                 if (res.success) {
+//                                     const { name, category, description } = res.data
+//                                     console.log(name, category, description)
+//                                     updateContractInfo(db, contract_address, name, category, description)
+//                                 }
+//                             })
+//                         }
+//                     })
+//                 })
+//             }
+//         })
+//     })
+
+// }
+// update();
+
 module.exports = {
     initPersonaContractDatabase,
     insertPersonaContract,
     getPopularContractsByGroup,
+    getPopularContractsByGroupExcludingAddress,
     clearPersonaContractTable,
     processWalletData
 }; 

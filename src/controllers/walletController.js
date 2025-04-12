@@ -7,7 +7,7 @@ const { runQuery } = require("../utils/bitqueryApi");
 const { initDatabase, getWallet, insertWallet, getLogs } = require("../utils/db");
 const { evaluateAndStoreWallet } = require("../utils/walletScorer");
 
-const { initPersonaContractDatabase } = require('../utils/personaContractDb');
+const { initPersonaContractDatabase, getPopularContractsByGroupExcludingAddress } = require('../utils/personaContractDb');
 const { getPopularContractsByGroup } = require('../utils/personaContractDb');
 
 // 환경 변수에서 API 키 가져오기
@@ -944,12 +944,18 @@ const getPopularContractsByPersonaGroup = async (req, res) => {
 
     // 쿼리 파라미터에서 limit 값 추출
     const limit = parseInt(req.query.limit) || 3;
+    const address = req.query.address || null;
 
     // DB 연결 초기화
     const db = await initPersonaContractDatabase();
 
     // 인기 컨트랙트 조회
-    const popularContracts = await getPopularContractsByGroup(db, group, limit);
+    let popularContracts;
+    if (address) {
+      popularContracts = await getPopularContractsByGroupExcludingAddress(db, address, group, limit);
+    } else {
+      popularContracts = await getPopularContractsByGroup(db, group, limit);
+    }
 
     // DB 연결 종료
     db.close(err => {
