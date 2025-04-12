@@ -1,28 +1,34 @@
-# 이더리움 지갑 분석 API
+# Ethereum Wallet Analysis API
 
-이 프로젝트는 이더리움 지갑 주소를 분석하여 다양한 정보를 제공하고 지갑 활동을 점수화하는 REST API입니다. Python 코드를 JavaScript로 변환한 버전입니다.
+This project provides a REST API that analyzes Ethereum wallet addresses and returns various insights, including activity scoring. It's a JavaScript version converted from Python.
 
-## 기능
+---
 
-- 이더리움 지갑의 트랜잭션 정보 분석
-- NFT 보유 정보 확인
-- ERC-20 토큰 보유 정보 분석
-- DEX 거래량 조회
-- 지갑 메타데이터 분석
-- 지갑 페르소나 평가 및 점수화 (Explorer, Diamond, Whale, Degen)
-- 데이터 캐싱 및 업데이트
+## Features
 
-## 설치 방법
+- Analyze transaction data of Ethereum wallets
+- Retrieve NFT holding information
+- Analyze ERC-20 token holdings
+- Track DEX trading volume
+- Analyze wallet metadata
+- Evaluate and score wallet personas (Explorer, Diamond, Whale, Degen)
+- Cache and update wallet data
 
-먼저 필요한 패키지를 설치합니다:
+---
 
-```bash
+## Installation
+
+First, install the required packages:
+
+```
 npm install
 ```
 
-## 환경 변수 설정
+---
 
-`.env` 파일을 생성하고 다음 내용을 입력합니다:
+## Environment Variables
+
+Create a `.env` file and add the following:
 
 ```
 ETHERSCAN_API_KEY=YOUR_ETHERSCAN_API_KEY
@@ -32,78 +38,101 @@ BITQUERY_API_URL=https://graphql.bitquery.io/
 PORT=8021
 ```
 
-## 사용 방법
+---
 
-### API 서버 실행
+## How to Use
 
-```bash
+### Start the API Server
+
+```
 npm start
 ```
 
-개발 모드로 실행 (코드 변경 시 자동 재시작):
+### Run in Development Mode
 
-```bash
+(Automatically restarts on code changes):
+
+```
 npm run start
 ```
 
-### API 엔드포인트
+---
 
-- `GET /api/persona-engine/update/:address`: 지정된 이더리움 주소의 지갑 정보를 실시간으로 분석합니다.
-- `GET /api/persona-engine/wallet/:address`: 지정된 이더리움 주소의 지갑 정보를 캐싱된 데이터를 활용하여 분석합니다.
+## API Endpoints
 
-### API 응답 구조
+### 1. Analyze Wallet in Real-Time
 
-API 호출 시 반환되는 데이터 구조는 다음과 같습니다:
+```
+GET /api/persona-engine/update/:address
+```
 
-```json
+Analyzes the specified Ethereum address and updates the data in real-time.
+
+---
+
+### 2. Retrieve Cached Wallet Data
+
+```
+GET /api/persona-engine/wallet/:address
+```
+
+Returns analysis using cached data.
+
+---
+
+## API Response Structure
+
+```
 {
   "success": true,
   "data": {
     "wallet": {
-      "address": "0x...", // 이더리움 지갑 주소
-      "balance": 6.24e18, // 이더리움 잔액 (Wei 단위)
-
-      // 지갑 활동 지표
-      "distinct_contract_count": 9, // 상호작용한 고유 컨트랙트 수
-      "dex_platform_diversity": 2, // 사용한 DEX 플랫폼 다양성
-      "avg_token_holding_period": 292.81, // 평균 토큰 보유 기간 (일)
-      "transaction_frequency": 1.95, // 트랜잭션 빈도
-      "dex_volume_usd": 17426451.01, // DEX 거래 총 볼륨 (USD)
-      "nft_collections_diversity": 25, // 보유 NFT 컬렉션 다양성
-
-      // 페르소나 점수 (0-10점 척도)
-      "explorer_score": 3.3, // Explorer 페르소나 점수
-      "diamond_score": 3.6, // Diamond 페르소나 점수
-      "whale_score": 4.4, // Whale 페르소나 점수
-      "degen_score": 3.5, // Degen 페르소나 점수
-
-      // 백분위 지표 (0-100)
+      "address": "0x...",
+      "balance": 6.24e18,
+      "distinct_contract_count": 9,
+      "dex_platform_diversity": 2,
+      "avg_token_holding_period": 292.81,
+      "transaction_frequency": 1.95,
+      "dex_volume_usd": 17426451.01,
+      "nft_collections_diversity": 25,
+      "explorer_score": 3.3,
+      "diamond_score": 3.6,
+      "whale_score": 4.4,
+      "degen_score": 3.5,
       "distinct_contract_count_percentile": 20.3,
       "dex_platform_diversity_percentile": 29.9,
       "avg_token_holding_period_percentile": 30.9,
       "transaction_frequency_percentile": 30.7,
       "dex_volume_usd_percentile": 48.8,
       "nft_collections_diversity_percentile": 53.4,
-
-      // 타임스탬프
-      "created_at": "2025-04-12 01:07:16", // 데이터 생성 시간
-      "updated_at": "2025-04-12 01:07:16" // 데이터 업데이트 시간
+      "created_at": "2025-04-12 01:07:16",
+      "updated_at": "2025-04-12 01:07:16"
     }
   },
-  "status": 200 // HTTP 상태 코드
+  "status": 200
 }
 ```
 
-### API 엔드포인트
+---
 
-- `GET /api/persona-engine/category/:group`: 특정 페르소나 그룹이 가장 많이 상호작용한 컨트랙트를 내림차순으로 조회합니다.
-  - `group`: 페르소나 그룹 이름 (예: `Explorer_Whale`, `Diamond_Degen`)
-  - `limit`: 반환할 컨트랙트 수 (선택적, 기본값: 3)
-    - 예시: `/api/persona-engine/category/Whale_Diamond?limit=3`은 Whale_Diamond 그룹이 가장 많이 상호작용한 상위 3개 컨트랙트를 반환합니다.
+### 3. Get Popular Contracts by Persona Group
 
-### API 응답 구조
+```
+GET /api/persona-engine/category/:group
+```
 
-```json
+Returns the most frequently interacted contracts by a specific persona group.
+
+- `group`: Persona group name (e.g., `Explorer_Whale`, `Diamond_Degen`)
+- `limit`: Optional. Number of contracts to return. Default: 3
+
+**Example:**
+
+`/api/persona-engine/category/Whale_Diamond?limit=3`
+
+### Response Example:
+
+```
 {
   "success": true,
   "data": {
@@ -119,14 +148,6 @@ API 호출 시 반환되는 데이터 구조는 다음과 같습니다:
       {
         "contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f",
         "frequency": 156
-      },
-      {
-        "contract_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-        "frequency": 132
-      },
-      {
-        "contract_address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
-        "frequency": 98
       }
     ]
   },
@@ -134,19 +155,23 @@ API 호출 시 반환되는 데이터 구조는 다음과 같습니다:
 }
 ```
 
-### CLI 모드 실행
+---
 
-명령줄에서 지갑 분석 후 파일로 저장:
+## CLI Mode
 
-```bash
+You can also analyze a wallet from the command line and save the result:
+
+```
 node src/cli.js 0xYourEthereumAddress
 ```
 
-## 기술 스택
+---
+
+## Tech Stack
 
 - Node.js
 - Express.js
 - Web3.js
 - Axios
 - Moment.js
-- MongoDB (데이터 캐싱)
+- MongoDB (for caching wallet data)
