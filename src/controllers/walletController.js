@@ -202,15 +202,36 @@ async function analyzeTransactions(address, retryCount = 3) {
 
     // 에러 케이스 처리
     if (!txs || !txs.length) {
-      return { 오류: "거래 내역이 없습니다." };
+      return {
+        total_transactions: 0,
+        average_gas_fee_eth: 0,
+        total_gas_fee_eth: 0,
+        max_gas_fee_eth: 0,
+        most_active_hour: 0,
+        average_transaction_interval_days: 0,
+      }
     }
 
     if (typeof txs === "string" && txs.includes("Error")) {
-      return { 오류: txs };
+      return {
+        total_transactions: 0,
+        average_gas_fee_eth: 0,
+        total_gas_fee_eth: 0,
+        max_gas_fee_eth: 0,
+        most_active_hour: 0,
+        average_transaction_interval_days: 0,
+      }
     }
 
     if (typeof txs === "object" && txs.isError) {
-      return { 오류: "트랜잭션 에러가 발생했습니다." };
+      return {
+        total_transactions: 0,
+        average_gas_fee_eth: 0,
+        total_gas_fee_eth: 0,
+        max_gas_fee_eth: 0,
+        most_active_hour: 0,
+        average_transaction_interval_days: 0,
+      }
     }
 
     // 데이터 분석
@@ -240,17 +261,13 @@ async function analyzeTransactions(address, retryCount = 3) {
         mostActiveHour = parseInt(hour);
       }
     }
-
     return {
       total_transactions: txs.length,
-      average_gas_fee_eth: round(average(gasFees), 6),
-      total_gas_fee_eth: round(sum(gasFees), 6),
-      max_gas_fee_eth: round(Math.max(...gasFees), 6),
+      average_gas_fee_eth: gasFees.length > 0 ? round(average(gasFees), 6) : 0,
+      total_gas_fee_eth: gasFees.length > 0 ? round(sum(gasFees), 6) : 0,
+      max_gas_fee_eth: gasFees.length > 0 ? round(Math.max(...gasFees), 6) : 0,
       most_active_hour: mostActiveHour,
-      average_transaction_interval_days: round(
-        intervals.length ? average(intervals) / 86400 : 0,
-        2
-      ),
+      average_transaction_interval_days: intervals.length > 0 ? round(average(intervals) / 86400, 2) : 0,
     };
   } catch (error) {
     console.error(`트랜잭션 분석 중 오류: ${error.message}`);
@@ -258,7 +275,14 @@ async function analyzeTransactions(address, retryCount = 3) {
       console.log(`트랜잭션 분석 재시도 중... (남은 시도: ${retryCount - 1})`);
       return analyzeTransactions(address, retryCount - 1);
     }
-    return { 오류: `데이터 처리 중 오류 발생: ${error.message}` };
+    return {
+      total_transactions: 0,
+      average_gas_fee_eth: 0,
+      total_gas_fee_eth: 0,
+      max_gas_fee_eth: 0,
+      most_active_hour: 0,
+      average_transaction_interval_days: 0,
+    }
   }
 }
 
@@ -321,7 +345,12 @@ async function analyzeTokenHoldings(address, retryCount = 3) {
     const txs = response.data.result || [];
 
     if (!txs || !txs.length) {
-      return { 오류: "토큰 거래 내역이 없습니다." };
+      return {
+        token_count: 0,
+        token_details: [],
+      }
+
+
     }
 
     // 토큰별 정보 분석
@@ -562,10 +591,10 @@ async function analyzeWallet(req, res) {
     });
 
     // 분석 함수 호출 결과 저장 변수
-    let transactionData = { 오류: "데이터를 가져오지 못했습니다." };
-    let nftData = { 오류: "데이터를 가져오지 못했습니다." };
-    let ftData = { 오류: "데이터를 가져오지 못했습니다." };
-    let dexData = { 오류: "데이터를 가져오지 못했습니다." };
+    let transactionData = {};
+    let nftData = {};
+    let ftData = {};
+    let dexData = {};
 
     // 각 모듈 개별적으로 실행하여 오류 발생 시에도 다른 모듈은 계속 실행되도록 함
     try {
@@ -666,13 +695,14 @@ async function fetchWalletData(address) {
  * @returns {Object} - 추출된 파라미터
  */
 function extractWalletParameters(walletData) {
+  console.log(walletData.FT)
   const distinctContractCount = new Set(walletData.transactions.map(tx => tx.contract_address)).size;
   const dexPlatformDiversity = walletData.DEX.dex_list.length;
-  const avgTokenHoldingPeriod = walletData.FT.token_details.reduce((sum, token) => sum + token.holding_period_days, 0) / walletData.FT.token_count;
+  const avgTokenHoldingPeriod = walletData.FT.token_details.length > 0 ? walletData.FT.token_details.reduce((sum, token) => sum + token.holding_period_days, 0) / walletData.FT.token_count : 0;
   const transactionFrequency = walletData.Transaction.total_transactions / walletData.recent_transactions_count;
   const dexVolumeUsd = walletData.DEX.dex_volume_usd;
   const nftCollectionsDiversity = walletData.NFT.owned_nft_collections_count;
-
+  console.log("zz")
   return {
     address: walletData.wallet,
     distinct_contract_count: distinctContractCount,
