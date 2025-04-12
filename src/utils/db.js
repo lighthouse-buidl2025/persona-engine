@@ -2,11 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
-// 데이터베이스 경로 설정
+// // 데이터베이스 경로 설정
 const dbPath = path.join(__dirname, '../../wallet_data.db');
 const walletParamsPath = path.join(__dirname, '../../wallet_parameters.json');
 
-// SQLite3 데이터베이스 생성 및 테이블 초기화
+// // SQLite3 데이터베이스 생성 및 테이블 초기화
 function initDatabase() {
     return new Promise((resolve, reject) => {
         // 데이터베이스 연결
@@ -28,19 +28,19 @@ function initDatabase() {
                     transaction_frequency REAL,
                     dex_volume_usd REAL,
                     nft_collections_diversity INTEGER,
-                    
+
                     explorer_score REAL DEFAULT 0,
                     diamond_score REAL DEFAULT 0,
                     whale_score REAL DEFAULT 0,
                     degen_score REAL DEFAULT 0,
-                    
+
                     distinct_contract_count_percentile REAL DEFAULT 0,
                     dex_platform_diversity_percentile REAL DEFAULT 0,
                     avg_token_holding_period_percentile REAL DEFAULT 0,
                     transaction_frequency_percentile REAL DEFAULT 0,
                     dex_volume_usd_percentile REAL DEFAULT 0,
                     nft_collections_diversity_percentile REAL DEFAULT 0,
-                    
+
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )`, (err) => {
@@ -198,7 +198,7 @@ function getAllWallets(db) {
 // 단일 지갑 조회
 function getWallet(db, address) {
     return new Promise((resolve, reject) => {
-        db.get(`SELECT * FROM wallets WHERE address = ?`, [address], (err, row) => {
+        db.get(`SELECT * FROM wallets WHERE address = ? ORDER BY created_at DESC LIMIT 1`, [address], (err, row) => {
             if (err) {
                 reject(`지갑 조회 오류: ${err.message}`);
                 return;
@@ -217,12 +217,44 @@ function getWallet(db, address) {
 }
 
 /**
- * 지갑 데이터를 주소 기준으로 업데이트하거나 삽입 (upsert)
+ * 특정 주소의 모든 지갑 내역 조회
+ * @param {Object} db - SQLite 데이터베이스 연결 객체
+ * @param {string} address - 조회할 지갑 주소
+ * @returns {Promise<Array>} - 조회된 지갑 내역 배열
+ */
+function getLogs(db, address) {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT 
+                id,
+                explorer_score, 
+                diamond_score, 
+                whale_score, 
+                degen_score, 
+                created_at FROM wallets WHERE address = ? ORDER BY created_at ASC`, [address], (err, rows) => {
+            if (err) {
+                reject(`지갑 내역 조회 오류: ${err.message}`);
+                return;
+            }
+
+            if (rows.length === 0) {
+                console.log(`주소가 ${address}인 지갑 내역을 찾을 수 없습니다.`);
+                resolve([]);
+                return;
+            }
+
+            console.log(`주소가 ${address}인 지갑 내역 ${rows.length}개를 조회했습니다.`);
+            resolve(rows);
+        });
+    });
+}
+
+/**
+ * 지갑 데이터를 데이터베이스에 삽입
  * @param {Object} db - SQLite 데이터베이스 연결 객체
  * @param {Object} walletData - 지갑 데이터 객체
  * @returns {Promise<Object>} - 처리 결과 (id, changes)
  */
-function upsertWallet(db, walletData) {
+function insertWallet(db, walletData) {
     return new Promise((resolve, reject) => {
         const {
             address,
@@ -252,7 +284,7 @@ function upsertWallet(db, walletData) {
             return;
         }
 
-        // SQLite의 UPSERT 구문 사용 (INSERT OR REPLACE)
+        // 단순 INSERT 구문 사용 (UNIQUE 제약조건이 없다고 가정)
         const stmt = db.prepare(`
       INSERT INTO wallets 
       (address, balance, distinct_contract_count, dex_platform_diversity, 
@@ -264,25 +296,6 @@ function upsertWallet(db, walletData) {
        dex_volume_usd_percentile, nft_collections_diversity_percentile,
        updated_at) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(address) DO UPDATE SET
-        balance = excluded.balance,
-        distinct_contract_count = excluded.distinct_contract_count,
-        dex_platform_diversity = excluded.dex_platform_diversity,
-        avg_token_holding_period = excluded.avg_token_holding_period,
-        transaction_frequency = excluded.transaction_frequency,
-        dex_volume_usd = excluded.dex_volume_usd,
-        nft_collections_diversity = excluded.nft_collections_diversity,
-        explorer_score = excluded.explorer_score,
-        diamond_score = excluded.diamond_score,
-        whale_score = excluded.whale_score,
-        degen_score = excluded.degen_score,
-        distinct_contract_count_percentile = excluded.distinct_contract_count_percentile,
-        dex_platform_diversity_percentile = excluded.dex_platform_diversity_percentile,
-        avg_token_holding_period_percentile = excluded.avg_token_holding_period_percentile,
-        transaction_frequency_percentile = excluded.transaction_frequency_percentile,
-        dex_volume_usd_percentile = excluded.dex_volume_usd_percentile,
-        nft_collections_diversity_percentile = excluded.nft_collections_diversity_percentile,
-        updated_at = CURRENT_TIMESTAMP
     `);
 
         stmt.run(
@@ -308,20 +321,15 @@ function upsertWallet(db, walletData) {
                 stmt.finalize();
 
                 if (err) {
-                    reject(`지갑 ${address} 업데이트/삽입 오류: ${err.message}`);
+                    reject(`지갑 ${address} 삽입 오류: ${err.message}`);
                     return;
                 }
 
-                // this.changes가 0이면 변경된 내용이 없음을 의미 (이미 같은 데이터가 있는 경우)
-                const action = this.changes > 0 ? (
-                    this.lastID ? '삽입' : '업데이트'
-                ) : '변경 없음';
-
-                console.log(`지갑 ${address} 정보가 ${action} 되었습니다.`);
+                console.log(`지갑 ${address} 정보가 삽입되었습니다. ID: ${this.lastID}`);
                 resolve({
                     id: this.lastID,
                     changes: this.changes,
-                    action
+                    action: '삽입'
                 });
             }
         );
@@ -338,15 +346,15 @@ async function main() {
         db = await initDatabase();
 
         // 지갑 데이터 읽기
-        const walletData = readWalletData();
+        // const walletData = readWalletData();
 
         // 지갑 데이터 삽입
-        await insertWalletData(db, walletData);
+        // await insertWalletData(db, walletData);
 
 
 
         // 데이터베이스 통계 조회
-        await getDBStats(db);
+        // await getDBStats(db);
 
         const wallet = await getWallet(db, "0x4da2d3f330f75458a7f4befe90f82921e318d0b7");
         console.log(wallet)
@@ -375,12 +383,12 @@ async function main() {
 // main();
 
 module.exports = {
-    upsertWallet,
+    insertWallet,
     getWallet,
     getAllWallets,
     getDBStats,
     insertWalletData,
     readWalletData,
-    initDatabase
+    initDatabase,
+    getLogs
 };
-

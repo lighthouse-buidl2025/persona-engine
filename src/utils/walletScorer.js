@@ -1,7 +1,7 @@
 // walletScorer.js
 const fs = require('fs');
 const path = require('path');
-const { initDatabase, getAllWallets, upsertWallet, getWallet } = require('./db');
+const { initDatabase, getAllWallets, insertWallet, getWallet } = require('./db');
 
 // === 포지션별 가중치 ===
 const positionWeights = {
@@ -136,23 +136,23 @@ async function evaluateAndStoreWallet(wallet) {
         const result = evaluateWallet(wallet, stats);
 
         // 평가 결과를 DB에 저장
-        const db = await initDatabase();
+        // const db = await initDatabase();
 
         // 평가 결과를 포함하여 지갑 데이터 업데이트
-        const walletDataWithScores = {
-            ...wallet,
-            explorer_score: result.scores.Explorer,
-            diamond_score: result.scores.Diamond,
-            whale_score: result.scores.Whale,
-            degen_score: result.scores.Degen
-        };
+        // const walletDataWithScores = {
+        //     ...wallet,
+        //     explorer_score: result.scores.Explorer,
+        //     diamond_score: result.scores.Diamond,
+        //     whale_score: result.scores.Whale,
+        //     degen_score: result.scores.Degen
+        // };
 
-        await upsertWallet(db, walletDataWithScores);
+        // await insertWallet(db, walletDataWithScores);
 
-        // 데이터베이스 연결 종료
-        db.close(err => {
-            if (err) console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
-        });
+        // // 데이터베이스 연결 종료
+        // db.close(err => {
+        //     if (err) console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
+        // });
 
         return result;
     } catch (error) {

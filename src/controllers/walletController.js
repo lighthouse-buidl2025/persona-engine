@@ -4,7 +4,7 @@ const Web3 = require("web3");
 const axios = require("axios");
 const moment = require("moment");
 const { runQuery } = require("../utils/bitqueryApi");
-const { initDatabase, getWallet, upsertWallet } = require("../utils/db");
+const { initDatabase, getWallet, insertWallet, getLogs } = require("../utils/db");
 const { evaluateAndStoreWallet } = require("../utils/walletScorer");
 
 const { initPersonaContractDatabase } = require('../utils/personaContractDb');
@@ -771,7 +771,7 @@ async function getWalletParameters(req, res, db = null, returnResult = false) {
         db = await initDatabase();
         shouldCloseDb = true;
         console.log(db)
-        await upsertWallet(db, walletInfo);
+        await insertWallet(db, walletInfo);
         console.log(`기본 지갑 정보가 DB에 저장되었습니다: ${address}`);
       } catch (dbError) {
         console.error(`DB 저장 중 오류 발생: ${dbError.message}`);
@@ -878,6 +878,60 @@ async function getOrFetchWalletParameters(req, res) {
 }
 
 /**
+ * 지갑 주소의 점수 내역을 데이터베이스에서 조회
+ * @param {string} address - 조회할 지갑 주소
+ * @returns {Promise<Array>} - 지갑 점수 내역 배열
+ */
+async function getWalletLogs(req, res) {
+  const { address } = req.params;
+
+  if (!address) {
+    return res.status(400).json({ error: "지갑 주소가 필요합니다." });
+  }
+
+  try {
+    if (!address || address.length < 10) {
+      throw new Error('유효한 지갑 주소가 필요합니다.');
+    }
+
+    // 데이터베이스 연결
+    const db = await initDatabase();
+
+    // 지갑 점수 내역 조회
+    const walletLogs = await getLogs(db, address);
+    console.log(walletLogs)
+    // 데이터베이스 연결 종료
+    db.close(err => {
+      if (err) {
+        console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
+        return res.status(500).json({
+          success: false,
+          error: "데이터베이스 연결 종료 오류가 발생했습니다.",
+          message: err.message,
+          status: 500
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: walletLogs,
+      status: 200
+    });
+  } catch (error) {
+    console.error(`지갑 점수 내역 조회 중 오류: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      error: "지갑 점수 내역 조회 중 오류가 발생했습니다.",
+      message: error.message,
+      status: 500
+    });
+  }
+}
+
+
+
+/**
  * 특정 페르소나 그룹의 인기 컨트랙트를 조회합니다.
  * @param {Object} req - Express 요청 객체
  * @param {Object} res - Express 응답 객체
@@ -959,5 +1013,6 @@ module.exports = {
   extractWalletParameters,
   getWalletParameters,
   getOrFetchWalletParameters,
+  getWalletLogs,
   getPopularContractsByPersonaGroup
 };
