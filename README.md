@@ -94,6 +94,46 @@ API 호출 시 반환되는 데이터 구조는 다음과 같습니다:
 }
 ```
 
+### API 엔드포인트
+
+- `GET /api/persona-engine/category/:group`: 특정 페르소나 그룹이 가장 많이 상호작용한 컨트랙트를 내림차순으로 조회합니다.
+  - `group`: 페르소나 그룹 이름 (예: `Explorer_Whale`, `Diamond_Degen`)
+  - `limit`: 반환할 컨트랙트 수 (선택적, 기본값: 3)
+    - 예시: `/api/persona-engine/category/Whale_Diamond?limit=3`은 Whale_Diamond 그룹이 가장 많이 상호작용한 상위 3개 컨트랙트를 반환합니다.
+
+### API 응답 구조
+
+```json
+{
+  "success": true,
+  "data": {
+    "contracts": [
+      {
+        "contract_address": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+        "frequency": 245
+      },
+      {
+        "contract_address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+        "frequency": 189
+      },
+      {
+        "contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+        "frequency": 156
+      },
+      {
+        "contract_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "frequency": 132
+      },
+      {
+        "contract_address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        "frequency": 98
+      }
+    ]
+  },
+  "status": 200
+}
+```
+
 ### CLI 모드 실행
 
 명령줄에서 지갑 분석 후 파일로 저장:

@@ -246,7 +246,8 @@ module.exports = {
     prepareReferenceStats,
     evaluateWallet,
     evaluateAndStoreWallet,
-    getWalletDataFromDB
+    getWalletDataFromDB,
+    metricKeys
 };
 
 // 직접 실행 시 메인 함수 호출
