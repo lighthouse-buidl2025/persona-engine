@@ -4,6 +4,8 @@ const Web3 = require("web3");
 const axios = require("axios");
 const moment = require("moment");
 const { runQuery } = require("../utils/bitqueryApi");
+const { initDatabase, getWallet, upsertWallet } = require("../utils/db");
+const { evaluateAndStoreWallet } = require("../utils/walletScorer");
 
 // 환경 변수에서 API 키 가져오기
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
@@ -611,6 +613,268 @@ async function analyzeWallet(req, res) {
 }
 
 /**
+ * 지갑 정보를 크롤링하여 반환하는 함수
+ * @param {string} address - 이더리움 지갑 주소
+ * @returns {Promise<Object>} - 지갑 분석 결과 객체
+ */
+async function fetchWalletData(address) {
+  try {
+    const checksumAddress = new Web3().utils.toChecksumAddress(address);
+
+    // 1. 지갑 기본 정보 조회
+    const balance = await getWalletBalance(checksumAddress);
+
+    // 2. 최근 트랜잭션 정보 조회
+    const { transactions, recentTxCount } = await getRecentTransactions(checksumAddress);
+
+    // 3. 토큰 활동 분석
+    const { useStable, tokenCount } = await analyzeTokenActivity(checksumAddress);
+
+    // 4. 분석 함수 호출
+    const [transactionData, nftData, ftData, dexData] = await Promise.all([
+      analyzeTransactions(checksumAddress),
+      getNftHoldings(checksumAddress),
+      analyzeTokenHoldings(checksumAddress),
+      analyzeDexTransactions(checksumAddress),
+    ]);
+
+    return {
+      wallet: checksumAddress,
+      balance,
+      use_stable: useStable,
+      tokens_count: tokenCount,
+      recent_transactions_count: recentTxCount,
+      transactions,
+      Transaction: transactionData,
+      NFT: nftData,
+      FT: ftData,
+      DEX: dexData,
+    };
+  } catch (error) {
+    console.error(`지갑 정보 수집 중 오류: ${error.message}`);
+    throw new Error(`지갑 정보 수집 실패: ${error.message}`);
+  }
+}
+
+/**
+ * 지갑 데이터를 기반으로 필요한 파라미터를 추출하는 함수
+ * @param {Object} walletData - 지갑 데이터 객체
+ * @returns {Object} - 추출된 파라미터
+ */
+function extractWalletParameters(walletData) {
+  const distinctContractCount = new Set(walletData.transactions.map(tx => tx.contract_address)).size;
+  const dexPlatformDiversity = walletData.DEX.dex_list.length;
+  const avgTokenHoldingPeriod = walletData.FT.token_details.reduce((sum, token) => sum + token.holding_period_days, 0) / walletData.FT.token_count;
+  const transactionFrequency = walletData.Transaction.total_transactions / walletData.recent_transactions_count;
+  const dexVolumeUsd = walletData.DEX.dex_volume_usd;
+  const nftCollectionsDiversity = walletData.NFT.owned_nft_collections_count;
+
+  return {
+    address: walletData.wallet,
+    distinct_contract_count: distinctContractCount,
+    dex_platform_diversity: dexPlatformDiversity,
+    avg_token_holding_period: avgTokenHoldingPeriod,
+    transaction_frequency: transactionFrequency,
+    dex_volume_usd: dexVolumeUsd,
+    nft_collections_diversity: nftCollectionsDiversity,
+    balance: walletData.balance
+  };
+}
+
+/**
+ * 지갑 주소에 대한 파라미터를 추출하여 응답하는 함수
+ * @param {object} req - Express 요청 객체
+ * @param {object} res - Express 응답 객체
+ * @param {object} db - 데이터베이스 연결 객체 (선택 사항)
+ * @param {boolean} returnResult - 결과를 반환할지 여부 (선택 사항)
+ * @returns {Promise<Object|void>} - returnResult가 true인 경우 결과 객체 반환
+ */
+async function getWalletParameters(req, res, db = null, returnResult = false) {
+  const { address } = req.params;
+
+  if (!address) {
+    if (returnResult) return { error: "지갑 주소가 필요합니다.", status: 400 };
+    return res.status(400).json({ error: "지갑 주소가 필요합니다." });
+  }
+
+  let shouldCloseDb = false;
+
+  try {
+    // 지갑 데이터 가져오기
+    const walletData = await fetchWalletData(address);
+
+    // 파라미터 추출
+    const parameters = extractWalletParameters(walletData);
+
+    // 현재 시간 (created_at, updated_at용)
+    const currentTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    // 결과 객체
+    const walletInfo = {
+      address: address,
+      balance: walletData.balance,
+      distinct_contract_count: parameters.distinct_contract_count,
+      dex_platform_diversity: parameters.dex_platform_diversity,
+      avg_token_holding_period: parameters.avg_token_holding_period,
+      transaction_frequency: parameters.transaction_frequency,
+      dex_volume_usd: parameters.dex_volume_usd,
+      nft_collections_diversity: parameters.nft_collections_diversity,
+      explorer_score: 0,
+      diamond_score: 0,
+      whale_score: 0,
+      degen_score: 0,
+      distinct_contract_count_percentile: 0,
+      dex_platform_diversity_percentile: 0,
+      avg_token_holding_period_percentile: 0,
+      transaction_frequency_percentile: 0,
+      dex_volume_usd_percentile: 0,
+      nft_collections_diversity_percentile: 0,
+      created_at: currentTime,
+      updated_at: currentTime
+    };
+
+
+
+    try {
+      // 지갑 평가 및 점수 계산 (walletScorer.js의 함수 사용)
+      const evaluatedWallet = await evaluateAndStoreWallet({
+        address,
+        ...parameters
+      });
+
+      // 평가 결과를 반환 객체에 포함
+      walletInfo.explorer_score = evaluatedWallet.scores.Explorer;
+      walletInfo.diamond_score = evaluatedWallet.scores.Diamond;
+      walletInfo.whale_score = evaluatedWallet.scores.Whale;
+      walletInfo.degen_score = evaluatedWallet.scores.Degen;
+      walletInfo.position = evaluatedWallet.position;
+
+      // percentile 정보 추가
+      walletInfo.distinct_contract_count_percentile = evaluatedWallet.percentiles.distinct_contract_count;
+      walletInfo.dex_platform_diversity_percentile = evaluatedWallet.percentiles.dex_platform_diversity;
+      walletInfo.avg_token_holding_period_percentile = evaluatedWallet.percentiles.avg_token_holding_period;
+      walletInfo.transaction_frequency_percentile = evaluatedWallet.percentiles.transaction_frequency;
+      walletInfo.dex_volume_usd_percentile = evaluatedWallet.percentiles.dex_volume_usd;
+      walletInfo.nft_collections_diversity_percentile = evaluatedWallet.percentiles.nft_collections_diversity;
+
+      console.log(`지갑 정보가 성공적으로 평가되었습니다: ${address}`);
+    } catch (evaluationError) {
+      console.error(`지갑 평가 중 오류 발생: ${evaluationError.message}`);
+    }
+    finally {
+      // 평가에 실패하더라도 기본 정보는 저장
+      try {
+        // DB 연결이 제공되지 않은 경우 새로 연결
+        db = await initDatabase();
+        shouldCloseDb = true;
+        console.log(db)
+        await upsertWallet(db, walletInfo);
+        console.log(`기본 지갑 정보가 DB에 저장되었습니다: ${address}`);
+      } catch (dbError) {
+        console.error(`DB 저장 중 오류 발생: ${dbError.message}`);
+      }
+    }
+
+    // 최종 응답 객체 구성
+    const responseData = {
+      wallet: walletInfo
+    };
+
+    // returnResult가 true인 경우 결과 반환, 그렇지 않으면 응답
+    if (returnResult) {
+      return { success: true, data: responseData, status: 200 };
+    } else {
+      // 성공적인 응답
+      return res.status(200).json(
+        { success: true, data: responseData, status: 200 }
+      );
+    }
+  } catch (error) {
+    console.error(`지갑 파라미터 분석 중 오류 발생: ${error.message}`);
+
+    if (returnResult) {
+      return { success: false, message: `지갑 파라미터 분석 중 오류 발생: ${error.message}`, status: 500 };
+    } else {
+      return res.status(500).json({ success: false, message: `지갑 파라미터 분석 중 오류 발생: ${error.message}` });
+    }
+  } finally {
+    // 함수 내에서 생성한 DB 연결이 있다면 종료
+    if (shouldCloseDb && db) {
+      shouldCloseDb = false;
+      db.close(err => {
+        if (err) console.error(`DB 연결 종료 오류: ${err.message}`);
+      });
+    }
+  }
+}
+
+/**
+ * 지갑 정보를 DB에서 조회하거나 없으면 크롤링해서 저장 후 반환
+ * @param {object} req - Express 요청 객체
+ * @param {object} res - Express 응답 객체
+ * @returns {Promise<void>}
+ */
+async function getOrFetchWalletParameters(req, res) {
+  const { address } = req.params;
+
+  if (!address) {
+    return res.status(400).json({ error: "지갑 주소가 필요합니다." });
+  }
+
+  let db;
+  try {
+    // 데이터베이스 연결
+    db = await initDatabase();
+
+    // DB에서 지갑 정보 검색
+    const wallet = await getWallet(db, address);
+
+    // 1. DB에 지갑 정보가 있는 경우
+    if (wallet) {
+      console.log(`DB에서 지갑 정보를 찾았습니다: ${address}`);
+      return res.status(200).json({
+        success: true,
+        data: {
+          wallet
+        }
+      });
+    }
+
+    // 2. DB에 지갑 정보가 없는 경우
+    console.log(`DB에 없는 지갑입니다. 크롤링을 시작합니다: ${address}`);
+
+    // getWalletParameters 함수를 호출하여 파라미터 가져오기
+    const result = await getWalletParameters(
+      { params: { address } }, // req 객체 형태로 전달
+      {}, // 빈 res 객체 (사용하지 않음)
+      db, // DB 연결 객체 전달
+      true // 결과 반환 플래그
+    );
+
+    // 오류가 발생한 경우
+    if (!result.success) {
+      return res.status(result.status).json(result);
+    }
+
+    // 결과가 성공적으로 반환된 경우 (이미 DB에 저장됨)
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error(`지갑 정보 처리 중 오류 발생: ${error.message}`);
+    return res.status(500).json({ success: false, message: `지갑 정보 처리 중 오류 발생: ${error.message}` });
+  } finally {
+    // 데이터베이스 연결 종료
+    if (db) {
+      db.close((err) => {
+        if (err) {
+          console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
+        }
+      });
+    }
+  }
+}
+
+/**
  * 배열의 평균값 계산
  * @param {Array<number>} arr - 숫자 배열
  * @returns {number} - 평균값
@@ -648,4 +912,7 @@ module.exports = {
   getWalletBalance,
   getRecentTransactions,
   analyzeTokenActivity,
+  extractWalletParameters,
+  getWalletParameters,
+  getOrFetchWalletParameters
 };

@@ -1,2 +1,6 @@
 .env
 node_modules
+
+wallet_data.db
+wallet_parameters.json
+wallets.json
