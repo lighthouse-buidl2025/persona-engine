@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getWalletParameters, getOrFetchWalletParameters, getPopularContractsByPersonaGroup, getWalletLogs } = require("../controllers/walletController");
+const { getWalletParameters, getOrFetchWalletParameters, getPopularContractsByPersonaGroup, getWalletLogs, getAverageMetricsByPersonaGroup } = require("../controllers/walletController");
 
 // 단일 지갑 분석 라우트
 router.get('/persona-engine/update/:address', getWalletParameters);
@@ -14,6 +14,6 @@ router.get('/persona-engine/logs/:address', getWalletLogs);
 
 router.get('/persona-engine/category/:group', getPopularContractsByPersonaGroup);
 
-// 나중에 필요한 추가 라우트를 여기에 정의할 수 있습니다
+router.get('/persona-engine/average/:group', getAverageMetricsByPersonaGroup);
 
 module.exports = router;

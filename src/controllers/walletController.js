@@ -7,8 +7,9 @@ const { runQuery } = require("../utils/bitqueryApi");
 const { initDatabase, getWallet, insertWallet, getLogs } = require("../utils/db");
 const { evaluateAndStoreWallet } = require("../utils/walletScorer");
 
-const { initPersonaContractDatabase, getPopularContractsByGroupExcludingAddress } = require('../utils/personaContractDb');
-const { getPopularContractsByGroup } = require('../utils/personaContractDb');
+const { initPersonaContractDatabase, getPopularContractsByGroupExcludingAddress, getPopularContractsByGroup, getAllGroupAverageMetrics } = require('../utils/personaContractDb');
+const { getAverageMetricsByGroup } = require("../utils/avg");
+
 
 // 환경 변수에서 API 키 가져오기
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
@@ -979,6 +980,56 @@ const getPopularContractsByPersonaGroup = async (req, res) => {
 };
 
 /**
+ * 특정 페르소나 그룹의 평균 지표를 조회합니다.
+ * @param {Object} req - Express 요청 객체
+ * @param {Object} res - Express 응답 객체
+ * @returns {Promise<void>}
+ */
+const getAverageMetricsByPersonaGroup = async (req, res) => {
+  try {
+    // 파라미터에서 그룹 이름 추출
+    const group = req.params.group;
+
+    if (!group) {
+      return res.status(400).json({
+        success: false,
+        error: "페르소나 그룹 정보가 필요합니다.",
+        status: 400
+      });
+    }
+
+    // DB 연결 초기화
+    const db = await initPersonaContractDatabase();
+    console.log("zz")
+    // 평균 지표 조회
+    const averageMetrics = await getAverageMetricsByGroup(db, group);
+
+    console.log("zz1")
+    // DB 연결 종료
+    db.close(err => {
+      if (err) console.error(`데이터베이스 연결 종료 오류: ${err.message}`);
+    });
+
+    // 결과 반환
+    res.json({
+      success: true,
+      data: averageMetrics,
+      status: 200
+    });
+  } catch (error) {
+    console.error(`그룹 평균 지표 조회 오류: ${error.message}`);
+    res.status(500).json({
+      success: false,
+      error: "그룹 평균 지표 조회 중 오류가 발생했습니다.",
+      message: error.message,
+      status: 500
+    });
+  }
+};
+
+
+
+/**
  * 배열의 평균값 계산
  * @param {Array<number>} arr - 숫자 배열
  * @returns {number} - 평균값
@@ -1020,5 +1071,6 @@ module.exports = {
   getWalletParameters,
   getOrFetchWalletParameters,
   getWalletLogs,
-  getPopularContractsByPersonaGroup
+  getPopularContractsByPersonaGroup,
+  getAverageMetricsByPersonaGroup
 };
